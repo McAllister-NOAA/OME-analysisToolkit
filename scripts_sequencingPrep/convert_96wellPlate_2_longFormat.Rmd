@@ -1,0 +1,526 @@
+---
+title: "JV_longFormat"
+author: "Sean McAllister"
+date: "2026-10-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Load libraries
+```{r}
+library(tidyverse)
+library(readxl)
+library(writexl)
+```
+
+#Import Run document and set marker lookup info
+```{r}
+
+imported_runPlateMaps <- read_xlsx("/Users/mcallister/Desktop/Run6_AlaskaArctic_SmithRoot_Beads_PCR_Sequencing Plate Maps.xlsx", sheet = "Sequencing Plate Maps for JV", col_names = FALSE)
+
+export_locname <- "/Users/mcallister/Downloads/Run6_longFormat.xlsx"
+
+imported_runPlateMaps <- imported_runPlateMaps %>%
+  mutate(across(everything(), as.character))
+
+marker_map <- tibble(
+  designation = c(
+    "MiFish",
+    "18S v4",
+    "ITS",
+    "Leray COI",
+    "16S Fuhrman",
+    "18S v9"
+  ),
+  marker = c(
+    "MiFish 12S",
+    "18S V4",
+    "ITS Marker",
+    "Leray CO1",
+    "16S Fuhrman",
+    "18S V9"
+  )
+)
+
+```
+
+#Functions
+```{r}
+get_cell <- function(x, row, col) {
+
+  if (
+    row < 1 ||
+    col < 1 ||
+    row > nrow(x) ||
+    col > ncol(x)
+  ) {
+    return(NA_character_)
+  }
+
+  x[[col]][row]
+}
+
+matches_sequence <- function(x, expected) {
+
+  length(x) == length(expected) &&
+    all(
+      !is.na(x) &
+        trimws(x) == as.character(expected)
+    )
+}
+
+is_plate_geometry <- function(row, col, x) {
+
+  # Need enough room for:
+  #   12 columns to the right
+  #   8 rows below
+  if (row + 8 > nrow(x) || col + 12 > ncol(x)) {
+    return(FALSE)
+  }
+
+  # Expected column headers: 1 through 12
+  column_headers <- x[row, (col + 1):(col + 12)]
+
+  # Expected row headers: A through H
+  row_headers <- x[(row + 1):(row + 8), col]
+
+  columns_numeric <- suppressWarnings(
+    as.numeric(column_headers)
+  )
+
+  columns_ok <- all(
+    !is.na(columns_numeric) &
+      columns_numeric == 1:12
+  )
+
+  rows_ok <- all(
+    !is.na(row_headers) &
+      row_headers == LETTERS[1:8]
+  )
+
+  columns_ok && rows_ok
+}
+```
+
+#Detect plate starts
+```{r}
+# ============================================================
+# FIND 96-WELL PLATE GEOMETRY
+# ============================================================
+
+# Convert to a character matrix
+x <- as.matrix(imported_runPlateMaps)
+
+# Remove whitespace from all cells
+x <- trimws(x)
+
+
+potential_plates <- expand_grid(
+  row = 1:(nrow(x) - 8),
+  col = 1:(ncol(x) - 12)
+) %>%
+  mutate(
+
+    plate_label = x[cbind(row, col)],
+
+    column_headers = map2(
+      row, col,
+      ~ x[.x, (.y + 1):(.y + 12)]
+    ),
+
+    row_headers = map2(
+      row, col,
+      ~ x[(.x + 1):(.x + 8), .y]
+    ),
+
+    columns_ok = map_lgl(
+      column_headers,
+      ~ {
+        z <- suppressWarnings(as.numeric(.x))
+        all(!is.na(z) & z == 1:12)
+      }
+    ),
+
+    rows_ok = map_lgl(
+      row_headers,
+      ~ all(.x == LETTERS[1:8])
+    )
+
+  ) %>%
+  filter(columns_ok, rows_ok)
+
+
+plate_geometry_qc <- potential_plates %>%
+  mutate(
+    plate_label = trimws(plate_label),
+
+    valid_plate_label = str_detect(
+      plate_label,
+      "^P[0-9]+$|^MU$"
+    ),
+
+    problem = case_when(
+      is.na(plate_label) ~ "Missing plate label",
+      plate_label == "" ~ "Blank plate label",
+      !valid_plate_label ~ "Unexpected plate label",
+      TRUE ~ NA_character_
+    )
+  )
+
+
+geometry_problems <- plate_geometry_qc %>%
+  filter(!valid_plate_label) %>%
+  select(
+    row,
+    col,
+    plate_label,
+    problem
+  )
+
+
+if (nrow(geometry_problems) > 0) {
+
+  print(geometry_problems)
+
+} else {
+
+  message(
+    "Plate geometry QC passed: ",
+    nrow(potential_plates),
+    " 96-well plates detected; all have P## or MU labels."
+  )
+
+}
+
+```
+
+#Create Table of Detected Valid Plates
+```{r}
+
+plate_blocks <- plate_geometry_qc %>%
+  filter(valid_plate_label) %>%
+  arrange(row, col) %>%
+  transmute(
+    `Plate Number` = row_number(),
+    `Plate Set` = plate_label,
+    header_row = row,
+    header_col = col
+  )
+
+
+plate_blocks
+
+```
+
+#Identify the marker well identifier
+```{r}
+
+find_marker_designation <- function(header_row, header_col, x) {
+
+  # Last row occupied by the 96-well plate
+  well_end_row <- header_row + 8
+
+  # Columns occupied by the plate, including the row-label
+  # column
+  plate_cols <- header_col:(header_col + 12)
+
+  # Search downward from the first row below the plate.
+  #
+  # Stop before the next possible plate header if one occurs.
+  search_rows <- (well_end_row + 1):nrow(x)
+
+  # Search only within the plate's horizontal footprint
+  for (r in search_rows) {
+
+    vals <- x[r, plate_cols]
+
+    # Look for a cell containing "Sequencing"
+    hits <- which(
+      !is.na(vals) &
+        str_detect(
+          vals,
+          regex("^OME\\s+.*Sequencing", ignore_case = TRUE)
+        )
+    )
+
+    if (length(hits) > 0) {
+
+      return(
+        tibble(
+          marker_row = r,
+          marker_col = plate_cols[hits[1]],
+          sequencing_designation = vals[hits[1]]
+        )
+      )
+    }
+
+    # If another plate starts before finding a marker,
+    # stop searching this plate.
+    #
+    # We look for the characteristic 1:12 headers and
+    # A:H row headers at the same horizontal positions.
+
+    if (r <= nrow(x) - 8) {
+
+      next_plate <- tryCatch(
+        is_plate_geometry(
+          row = r,
+          col = header_col,
+          x = x
+        ),
+        error = function(e) FALSE
+      )
+
+      if (next_plate) {
+        break
+      }
+    }
+  }
+
+  # No designation found
+  tibble(
+    marker_row = NA_integer_,
+    marker_col = NA_integer_,
+    sequencing_designation = NA_character_
+  )
+}
+
+
+# ============================================================
+# Apply to every detected plate
+# ============================================================
+
+plate_markers <- plate_blocks %>%
+  mutate(
+    marker_info = map2(
+      header_row,
+      header_col,
+      ~ find_marker_designation(
+        header_row = .x,
+        header_col = .y,
+        x = x
+      )
+    )
+  ) %>%
+  unnest(marker_info)
+
+# ============================================================
+# STEP 3: NORMALIZE MARKER NAME
+# ============================================================
+
+plate_markers <- plate_markers %>%
+  mutate(
+
+    # Remove the plate-specific portion:
+    #
+    # OME P30 Sequencing MiFish
+    # -> MiFish
+    #
+    # OME P38 Sequencing 18S v9
+    # -> 18S v9
+
+    marker_designation = str_remove(
+      sequencing_designation,
+      regex("^OME\\s+P[0-9]+\\s+Sequencing\\s+", 
+            ignore_case = TRUE)
+    ),
+
+    # MU plates need the same treatment, if their designation
+    # follows the same OME ... Sequencing pattern.
+    marker_designation = str_remove(
+      marker_designation,
+      regex("^OME\\s+RUN 6 Makeups\\s+Sequencing\\s+",
+            ignore_case = TRUE)
+    )
+  ) %>%
+
+  mutate(
+    marker_key = marker_designation %>%
+      str_squish() %>%
+      str_to_lower()
+  ) %>%
+  left_join(
+    marker_map %>%
+      mutate(
+        marker_key = designation %>%
+          str_squish() %>%
+          str_to_lower()
+      ),
+    by = "marker_key"
+  ) %>%
+  select(-marker_key)
+
+plate_markers
+```
+
+#Extract and convery to long format
+```{r}
+# ============================================================
+# STEP 9: EXTRACT EACH 8 × 12 PLATE
+# ============================================================
+
+extract_plate_wells <- function(
+  `Plate Number`,
+  `Plate Set`,
+  header_row,
+  header_col,
+  marker,
+  x
+) {
+
+  # Extract the 8 × 12 sample area.
+  #
+  # The plate header is at:
+  #   header_row, header_col
+  #
+  # The 96 wells are:
+  #   rows    header_row + 1 through header_row + 8
+  #   columns header_col + 1 through header_col + 12
+
+  sample_matrix <- x[
+    (header_row + 1):(header_row + 8),
+    (header_col + 1):(header_col + 12),
+    drop = FALSE
+  ]
+
+  # Convert the 8 × 12 matrix into one row per well.
+  #
+  # as.vector(t(...)) reads across each row:
+  #
+  # A1, A2, ... A12,
+  # B1, B2, ... B12,
+  # ...
+  # H1, H2, ... H12
+
+  expand_grid(
+    Row = LETTERS[1:8],
+    Column = 1:12
+  ) %>%
+    mutate(
+      `Sample Name` = as.vector(t(sample_matrix)),
+      `Plate Number` = `Plate Number`,
+      `Plate Set` = `Plate Set`,
+      `Metabarcoding Marker` = marker
+    ) %>%
+    select(
+      `Plate Number`,
+      `Plate Set`,
+      `Metabarcoding Marker`,
+      Row,
+      Column,
+      `Sample Name`
+    )
+}
+
+
+# ============================================================
+# EXTRACT ALL DETECTED PLATES
+# ============================================================
+
+plate_wells <- pmap_dfr(
+  plate_markers %>%
+    select(
+      `Plate Number`,
+      `Plate Set`,
+      header_row,
+      header_col,
+      marker
+    ),
+  extract_plate_wells,
+  x = x
+)
+
+# ============================================================
+# STEP 10: CREATE PLATE NAME
+# ============================================================
+
+plate_wells <- plate_wells %>%
+  mutate(
+    `Plate Name` = paste(
+      "OME",
+      `Plate Set`,
+      "Sequencing",
+      `Metabarcoding Marker`
+    ),
+    .after = `Plate Set`
+  )
+
+# ============================================================
+# STEP 11: ASSIGN LIBRARY NUMBERS
+# ============================================================
+
+plate_wells <- plate_wells %>%
+  arrange(
+    `Plate Number`,
+    Row,
+    Column
+  ) %>%
+  mutate(
+    `Library Number` = if_else(
+      !is.na(`Sample Name`) &
+        `Sample Name` != "" &
+        str_to_upper(`Sample Name`) != "EMPTY",
+      cumsum(
+        !is.na(`Sample Name`) &
+          `Sample Name` != "" &
+          str_to_upper(`Sample Name`) != "EMPTY"
+      ),
+      NA_integer_
+    ),
+    .before = 1
+  )
+
+
+plate_wells
+
+```
+
+#Create final long format library table for export
+```{r}
+# ============================================================
+# STEP 12: CREATE FINAL LIBRARY TABLE
+# ============================================================
+
+library_table <- plate_wells %>%
+  select(
+    `Library Number`,
+    `Plate Number`,
+    `Plate Set`,
+    `Metabarcoding Marker`,
+    `Plate Name`,
+    Column,
+    Row,
+    `Sample Name`
+  )
+
+
+library_table
+
+
+
+```
+
+#Export
+```{r}
+write_xlsx(
+  library_table,
+  export_locname,
+  na = "NA"
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
