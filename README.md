@@ -11,6 +11,11 @@ This R markdown script imports the OME sequencing plate map file and converts to
 
 ## scripts\_dataAnalysis
 
+### 01\_MakePhyloseq\_ExploreData.Rmd
+This R markdown script imports the OME sequencing data from the decontamination pipeline output for some data exploration and visualization using [phyloseq](https://joey711.github.io/phyloseq/index.html) and [microViz](https://david-barnett.github.io/microViz/). For each metabarcoding region of interest the script will read in the taxa, asv, metadata tables and fasta file, create a phyloseq object that is saved as an R data file (.rds), and produces a bargraph and ordination plot based on a metadata column of interest (e.g. sample collection device). To run the script you will need to ensure you've also downloaded the 'OME_analysis_utilities.R' file to load all libraries and functions. The path to this file will need to be edited in the first code chunk (`setup`). In the second (`load-seq-data`) and third (`make-phyloseq-obj`) code chunks you will need to add change to the filenames you are using (likely just the metarcoding region). Within the same code chunk ( ) and function (`create_phyloseq_object()`) you can select particular metadata columns of interest (`col_select`), specify and output directory (`output_dir`), and change the filename for the output (`filename`). In the next code chunk (`filer-phyloseq-metadata`), a column for pcr rep is added based on the sample naming schema, and all unknown taxa at the domain level are removed. Microviz will be used to create a bargraph and ordination plot which will be saved in a figures folder.
+
+### OME\_analysis\_utilities.R
+Includes functions to download and load packages, load data from decontam output, and to create a phyloseq object. More details coming soon...
 
 
 ### Legal Disclaimer
