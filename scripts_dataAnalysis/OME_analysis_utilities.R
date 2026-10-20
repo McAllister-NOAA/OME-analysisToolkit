@@ -278,3 +278,24 @@ create_phyloseq_object <- function(asv_path, tax_path, taxa_level = NULL,
   print(ps_obj)
 }
 
+#' Create figures directory
+#' 
+#' @param folder_name folder name for figure output if different than default. 
+#' (default: figures)
+#' 
+#' @description
+#' This function creates a directory to save figures.
+#'
+#' @examples 
+#' create_dir()
+create_dir <- function(folder_name = "figures") {
+  
+  # required packages for function
+  pkg_check()
+  
+  # check if directory exists and if not, create it
+  if (!dir.exists(here::here(folder_name))) {
+    dir.create(here::here(folder_name), recursive = TRUE)
+  }
+}
+

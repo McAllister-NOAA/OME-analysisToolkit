@@ -20,6 +20,8 @@ source(paste0(path_to_utilites,"/OME_analysis_utilities.R"))
 pkg_check() 
 # can add additional packages by changing to: pkg_check(c("package","package))
 
+# region of interest:
+region <- "MiFish"
 ```
 
 ## Load data files:
@@ -39,7 +41,8 @@ fasta_df <- read_fasta(here("MiFish_final_seqs.fasta"))
 ## Create phyloseq object:
 
 ```{r make-phyloseq-obj}
-MiFish_ps <- create_phyloseq_object(asv_path = here("MiFish_final_asv_table.csv"), 
+phyloseq_object <- create_phyloseq_object(
+                       asv_path = here("MiFish_final_asv_table.csv"), 
                        tax_path = here("MiFish_final_taxonomy_table.csv"),
                        meta_path = here("MiFish_final_metadata.csv"),
                        fasta_path = here("MiFish_final_seqs.fasta"),
@@ -62,11 +65,12 @@ microviz_check()
 # other packages recommended by microviz
 pkg_check(c("ggtext", "ggraph", "DT", "corncob"))
 # add sample names to column for rep id:
-sample_data(MiFish_ps)$sample_name <- sample_names(MiFish_ps)
+sample_data(phyloseq_object)$sample_name <- sample_names(phyloseq_object)
 
 # filter and add pcr_rep column:
-MiFish_ps_filt <- MiFish_ps %>%
-  microViz::ps_filter(expedition_id!="OC0919") %>%
+phyloseq_object_filt <- phyloseq_object %>%
+  # can filter out particular expedition id's (cruises) by uncommenting the next line
+  # microViz::ps_filter(expedition_id!="OC0919") %>% 
   microViz::ps_mutate(pcr_rep = str_extract("samp_name", "PCR\\d+$")) %>%
   subset_taxa(!is.na(Domain) & Domain != "Unknown")
 ```
@@ -80,15 +84,27 @@ To continue on with R code, stop the code in the console and continue to the nex
 ```{r microViz-bargraph}
 # run microviz to explore data
 # example data from corncob package
-MiFish_cleaned <- MiFish_ps_filt %>%
+ps_obj_cleaned <- phyloseq_object_filt %>%
   tax_fix() %>% # not required but helps with visualization
   # tax_agg(rank = "Class") %>%
   phyloseq_validate() # %>% ord_explore()
-
-MiFish_cleaned %>%
+# create bargraph
+bargraph <- ps_obj_cleaned %>%
   comp_barplot(tax_level = "Genus", n_taxa = 8, label = NULL) +
   facet_wrap(vars(samp_collect_device), scales = "free") +
-  coord_flip() # horizontal bars are often more readable
+  coord_flip()
+# view
+bargraph
+
+# create figure folder:
+create_dir()
+# save figure (change width and height as needed)
+ggsave(
+  filename = here::here("figures",paste0(region,"_genus_barplot.png")), 
+  width = 10, 
+  height = 8, 
+  dpi = 300
+)
 
 ```
 
@@ -96,12 +112,23 @@ Ordination plot
 
 ```{r ordination}
 # run ordination with microViz
-MiFish_nmds <- MiFish_cleaned %>%
+ps_nmds <- ps_obj_cleaned %>%
   dist_calc(dist = "bray") %>%
   ord_calc(method = "NMDS")
 
 # Generate the ordination plot
-ord_plot(MiFish_nmds, color = "samp_collect_device", label = NULL)
+ordination <- ord_plot(ps_nmds, color = "samp_collect_device", label = NULL)
+ordination
+
+# create figure folder:
+create_dir()
+# save figure (change width and height as needed)
+ggsave(ordination,
+  filename = here::here("figures",paste0(region,"_ordination.png")), 
+  width = 8, 
+  height = 8, 
+  dpi = 300
+)
 
 ```
 
