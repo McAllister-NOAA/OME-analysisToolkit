@@ -1,0 +1,114 @@
+---
+title: "Make_Phyloseq_object"
+author: "Sam Setta"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+Goal of script: Create a phyloseq object from decontamination output files, and look at output in microviz.
+
+Loading phyloseq tutorial here: https://vaulot.github.io/tutorials/Phyloseq_tutorial.html
+
+```{r setup, include=FALSE}
+# Change path below to where you have your "OME_analysis_utilities.R" saved
+path_to_utilites <- "/Users/setta/Documents/OME_R_scripts"
+
+# Source utlities files for all ome functions.
+source(paste0(path_to_utilites,"/OME_analysis_utilities.R"))
+
+# Install and load libraries for neccessary packages with ome utility fxn:
+pkg_check() 
+# can add additional packages by changing to: pkg_check(c("package","package))
+
+```
+
+## Load data files:
+
+```{r load-seq-data}
+# otu table
+otu_table <- read_asv_table(here("MiFish_final_asv_table.csv"))
+# taxa table
+tax_table <- read_tax_table(here("MiFish_final_taxonomy_table.csv"))
+# metadata file
+meta <- read_metadata(here("MiFish_final_metadata.csv"))
+# fasta file
+fasta_df <- read_fasta(here("MiFish_final_seqs.fasta"))
+
+```
+
+## Create phyloseq object:
+
+```{r make-phyloseq-obj}
+MiFish_ps <- create_phyloseq_object(asv_path = here("MiFish_final_asv_table.csv"), 
+                       tax_path = here("MiFish_final_taxonomy_table.csv"),
+                       meta_path = here("MiFish_final_metadata.csv"),
+                       fasta_path = here("MiFish_final_seqs.fasta"),
+                       # if you want to choose particular columns for metadata 
+                       # replace null with list of column id's e.g. c("samp_name", "station")
+                       col_select = c("samp_name","station_id",
+                                      "samp_collect_device",
+                                      "expedition_id",
+                                      "salinity","temp","diss_oxygen"), 
+                       output_dir = "",
+                       filename = "MiFish_phyloseq_obj")
+
+```
+
+Filter phyloseq object by metadata:
+
+```{r filter-phyloseq-meta}
+# make sure microViz is installed:
+microviz_check()
+# other packages recommended by microviz
+pkg_check(c("ggtext", "ggraph", "DT", "corncob"))
+# add sample names to column for rep id:
+sample_data(MiFish_ps)$sample_name <- sample_names(MiFish_ps)
+
+# filter and add pcr_rep column:
+MiFish_ps_filt <- MiFish_ps %>%
+  microViz::ps_filter(expedition_id!="OC0919") %>%
+  microViz::ps_mutate(pcr_rep = str_extract("samp_name", "PCR\\d+$")) %>%
+  subset_taxa(!is.na(Domain) & Domain != "Unknown")
+```
+
+
+## MicroViz data exploration
+
+When running this code, a browser tab will open, and allow you to explore data.
+To continue on with R code, stop the code in the console and continue to the next R code chunk
+
+```{r microViz-bargraph}
+# run microviz to explore data
+# example data from corncob package
+MiFish_cleaned <- MiFish_ps_filt %>%
+  tax_fix() %>% # not required but helps with visualization
+  # tax_agg(rank = "Class") %>%
+  phyloseq_validate() # %>% ord_explore()
+
+MiFish_cleaned %>%
+  comp_barplot(tax_level = "Genus", n_taxa = 8, label = NULL) +
+  facet_wrap(vars(samp_collect_device), scales = "free") +
+  coord_flip() # horizontal bars are often more readable
+
+```
+
+Ordination plot
+
+```{r ordination}
+# run ordination with microViz
+MiFish_nmds <- MiFish_cleaned %>%
+  dist_calc(dist = "bray") %>%
+  ord_calc(method = "NMDS")
+
+# Generate the ordination plot
+ord_plot(MiFish_nmds, color = "samp_collect_device", label = NULL)
+
+```
+
+
+#### Software and package versions used for file:
+
+```{r warning=FALSE}
+
+print(sessionInfo(), locale = FALSE)
+```
