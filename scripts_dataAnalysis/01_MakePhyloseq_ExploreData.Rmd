@@ -47,7 +47,7 @@ phyloseq_object <- create_phyloseq_object(
                        meta_path = here("MiFish_final_metadata.csv"),
                        fasta_path = here("MiFish_final_seqs.fasta"),
                        # if you want to choose particular columns for metadata 
-                       # replace null with list of column id's e.g. c("samp_name", "station")
+                       # replace list of column id's e.g. c("samp_name", "station") with NULL if you want all metdata columns
                        col_select = c("samp_name","station_id",
                                       "samp_collect_device",
                                       "expedition_id",
