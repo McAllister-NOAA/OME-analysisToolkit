@@ -46,12 +46,15 @@ phyloseq_object <- create_phyloseq_object(
                        tax_path = here("MiFish_final_taxonomy_table.csv"),
                        meta_path = here("MiFish_final_metadata.csv"),
                        fasta_path = here("MiFish_final_seqs.fasta"),
-                       # if you want to choose particular columns for metadata 
-                       # replace list of column id's e.g. c("samp_name", "station") with NULL if you want all metdata columns
+                       # replace col_select list of column id's e.g. c("samp_name", "station") 
+                       # with NULL if you want all metdata columns
+                       # if you want to choose particular columns for metadata, change them in col_select
                        col_select = c("samp_name","station_id",
                                       "samp_collect_device",
                                       "expedition_id",
-                                      "salinity","temp","diss_oxygen"), 
+                                      "salinity","temp","diss_oxygen"),
+                       # if PR2 taxonomy, change taxa_level NULL to "nine"
+                       taxa_level = NULL,
                        output_dir = "",
                        filename = "MiFish_phyloseq_obj")
 
