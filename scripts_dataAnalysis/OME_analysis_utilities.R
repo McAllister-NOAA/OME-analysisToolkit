@@ -96,7 +96,8 @@ read_tax_table <- function(tax_path, taxa_level = NULL) {
   if(!is.null(taxa_level)) { 
     if(taxa_level == "nine") {
     tax_table <-tax_table %>%
-    separate_wider_delim(sum.taxonomy, 
+      dplyr::select(c("seq_id","Taxon") %>%
+      separate_wider_delim(Taxon, 
                          delim = ";", 
                          names = c("Domain", "Supergroup", "Division", "Subdivision", 
                                    "Class","Order", "Family", "Genus","Species"))
